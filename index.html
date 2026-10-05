@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000">
+<title>Para Rebeca — Nosso Universo</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:Arial,sans-serif;position:fixed;inset:0;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}#app{position:fixed;inset:0;background:#000;overflow:hidden}canvas{display:block;width:100%;height:100%;touch-action:none}.hint{position:absolute;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);padding:9px 14px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(0,0,0,.38);font-size:12px;color:rgba(255,255,255,.8);backdrop-filter:blur(5px);pointer-events:none;transition:opacity .8s}.intro{position:absolute;inset:0;display:grid;place-items:center;background:#000;z-index:5;transition:opacity 1s}.intro.hide{opacity:0;pointer-events:none}.intro .copy{text-align:center;opacity:0;animation:show 1.2s .25s forwards}.intro h1{font-size:clamp(30px,8vw,58px);margin:0 0 10px;font-weight:500;letter-spacing:.06em}.intro p{margin:0;color:#ddd;font-size:14px}.intro button{margin-top:28px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);color:white;border-radius:999px;padding:12px 23px;font-size:14px;cursor:pointer}@keyframes show{to{opacity:1}}.modal{position:absolute;inset:0;display:none;place-items:center;background:rgba(0,0,0,.5);z-index:4;padding:24px}.modal.show{display:grid}.card{width:min(420px,90vw);border:1px solid rgba(255,170,215,.45);background:rgba(7,5,14,.88);box-shadow:0 0 45px rgba(255,80,190,.16);border-radius:22px;padding:27px 24px calc(27px + env(safe-area-inset-bottom,0px));text-align:center;backdrop-filter:blur(14px)}.card h2{margin:0 0 13px;font-size:23px;font-weight:500}.card p{margin:0;color:#eee;line-height:1.65;font-size:16px}.close{margin-top:22px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:white;border-radius:999px;padding:9px 18px}
+</style>
+</head>
+<body>
+<div id="app">
+<canvas id="space"></canvas>
+<div class="hint" id="hint">arraste com o dedo para olhar ao redor</div>
+<div class="intro" id="intro"><div class="copy"><h1>Para Rebeca</h1><button id="go">entrar na galáxia</button></div></div>
+<div class="modal" id="modal"><div class="card"><h2 id="mt"></h2><p id="mb"></p><button class="close" id="close">voltar à galáxia</button></div></div>
+</div>
+<script>
+const canvas=document.getElementById('space'),ctx=canvas.getContext('2d',{alpha:false}),intro=document.getElementById('intro');
+const TOUCH=matchMedia('(pointer:coarse)').matches||'ontouchstart'in window;
+let W=innerWidth,H=innerHeight,DPR=Math.min(devicePixelRatio||1,2),needsLayout=true;
+function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(devicePixelRatio||1,TOUCH?1.5:2);canvas.width=W*DPR|0;canvas.height=H*DPR|0;ctx.setTransform(DPR,0,0,DPR,0,0);needsLayout=true}
+addEventListener('resize',resize);resize();
+
+const TAU=Math.PI*2,rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* sprites pré-renderizados: substituem arc()+shadowBlur por drawImage */
+function makeSprite(size,stops){
+  const c=document.createElement('canvas');c.width=c.height=size;
+  const g=c.getContext('2d'),r=size/2,gr=g.createRadialGradient(r,r,0,r,r,r);
+  for(const[o,col]of stops)gr.addColorStop(o,col);
+  g.fillStyle=gr;g.fillRect(0,0,size,size);return c;
+}
+const SPR_BG=4;
+const sprWhite=makeSprite(64,[[0,'rgba(255,255,255,1)'],[.22,'rgba(255,255,255,.92)'],[.5,'rgba(255,220,245,.35)'],[1,'rgba(255,180,235,0)']]);
+const sprPink =makeSprite(64,[[0,'rgba(255,255,255,1)'],[.16,'rgba(255,196,240,.95)'],[.42,'rgba(255,120,210,.45)'],[1,'rgba(255,80,190,0)']]);
+function dot(spr,x,y,r,alpha){
+  if(alpha<=0||r<=0)return;
+  const s=r*SPR_BG;
+  ctx.globalAlpha=alpha>1?1:alpha;
+  ctx.drawImage(spr,x-s*.5,y-s*.5,s,s);
+}
+
+/* geometria pré-calculada em arrays tipados (sem alocação por quadro) */
+const NS=1800,ND=9000,NH=2200,NV=1300,NT=2600;
+const stA=new Float32Array(NS),stR=new Float32Array(NS),stZ=new Float32Array(NS),stS=new Float32Array(NS),stP=new Float32Array(NS);
+for(let i=0;i<NS;i++){stA[i]=rand(0,TAU);stR[i]=Math.pow(Math.random(),.55)*2.0;stZ[i]=rand(.15,2.2);stS[i]=rand(.25,1.7);stP[i]=rand(0,TAU)}
+const dkA=new Float32Array(ND),dkR=new Float32Array(ND),dkZ=new Float32Array(ND),dkS=new Float32Array(ND),dkW=new Float32Array(ND);
+for(let i=0;i<ND;i++){const rr=Math.pow(Math.random(),1.7);dkA[i]=rand(0,TAU);dkR[i]=rr;dkZ[i]=rand(-.12,.12)*(1-rr)*1.8;dkS[i]=rand(.25,1.25);dkW[i]=rand(.5,1.8)}
+const htX=new Float32Array(NH),htY=new Float32Array(NH),htZ=new Float32Array(NH),htS=new Float32Array(NH);
+for(let i=0;i<NH;i++){const t=rand(0,TAU),x=16*Math.pow(Math.sin(t),3),y=13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);htX[i]=x/17;htY[i]=-y/17;htZ[i]=rand(-.12,.12);htS[i]=rand(.35,1.2)}
+const vxA=new Float32Array(NV),vxR=new Float32Array(NV),vxS=new Float32Array(NV);
+for(let i=0;i<NV;i++){vxA[i]=rand(0,TAU);vxR[i]=rand(.03,1);vxS[i]=rand(.2,1)}
+const tnA=new Float32Array(NT),tnR=new Float32Array(NT),tnZ=new Float32Array(NT),tnB=new Uint8Array(NT),tnP=new Uint8Array(NT);
+for(let i=0;i<NT;i++){tnA[i]=(i*2.399+Math.sin(i)*.2)%TAU;tnR[i]=.03+((i*73)%1000)/1000*1.15;const d=((i*37)%1000)/1000;tnZ[i]=d;tnB[i]=d*8|0;tnP[i]=(i%9===0?1:0)}
+
+/* rede de segurança: só reduz partículas se o quadro estiver realmente travando */
+let Q=1,acc=0,fCount=0;
+function tune(dt){acc+=dt;fCount++;if(acc<1200)return;const fps=fCount/acc*1000;acc=0;fCount=0;if(fps<25&&Q>.7)Q=Math.max(.7,Q*.85);else if(fps>50&&Q<1)Q=Math.min(1,Q+.05)}
+const nOf=n=>Math.max(1,(n*Q)|0);
+
+const plaques=[
+['TE AMO','Você é meu lugar favorito em qualquer universo.'],['VOCÊ É ESPECIAL','Eu escolheria você de novo, em qualquer vida e em qualquer estrela.'],['NOSSO UNIVERSO','Meu universo fica muito mais bonito quando você está nele.'],['PARA SEMPRE','Quero dividir muitos amanhãs com você, até onde as estrelas alcançarem.'],['MEU LUGAR FAVORITO','Se eu pudesse escolher um lugar para ficar, seria sempre ao seu lado.'],['TE ADORO','Eu adoro cada detalhe seu e cada pedacinho da nossa história.'],['MINHA VIDA','Você trouxe uma luz para a minha vida que eu nem sabia que procurava.'],['SÓ VOCÊ','Meu coração reconhece você no meio de qualquer multidão.'],['AMOR ETERNO','Que o nosso amor continue brilhando mesmo depois de todas as estrelas.'],['VOCÊ ME FAZ FELIZ','Você consegue transformar os meus dias comuns nos meus dias favoritos.']];
+const plaqueWords=plaques.map(p=>p[0].split(' '));
+/* posições originais (paisagem) e versão espalhada para celular em pé */
+const LAY_LAND=[[-1.75,-.55,-.8],[1.72,-.48,-.45],[-1.95,.15,.15],[1.88,.25,.45],[-1.15,.9,-.55],[1.12,.88,-.3],[-2.05,-.1,.7],[2.05,.06,.85],[-.72,-1.02,.3],[.72,-.98,.15]];
+let pos=LAY_LAND.slice(),order=[],PX=W*.23,PY=W*.23,PW=Math.min(W*.30,190),PH=54,FS=10.5,tall=false;
+/* no retrato as posições saem calculadas da tela real: a profundidade (z) amplia as
+   placas próximas, então x e y são derivados para que nenhuma caixa saia da borda */
+function buildPortrait(){
+  const fracs=[-2,-1.2,-.5,.6,1.3,2],cols=[-1,1],zs=[-.30,-.16,-.34,-.10,-.24,-.20],arr=[];
+  for(let r=0;r<fracs.length&&arr.length<10;r++)for(let c=0;c<2&&arr.length<10;c++){
+    const z=zs[r],d=3.8/(3.8+z);
+    const mx=Math.max(0,W*.94/2-PW*d/2)/(PX*d),my=Math.max(0,H*.90/2-PH*d/2)/(PY*d);
+    arr.push([cols[c]*mx,fracs[r]/2*my+H*.03/(PY*d),z]);
+  }
+  return arr;
+}
+function layout(){
+  tall=H>=W*1.05;
+  PX=PY=tall?W*.30:W*.23;
+  PW=tall?Math.min(W*.29,190):Math.min(W*.30,190);
+  PH=tall?56:54;
+  FS=tall?13:10.5;
+  pos=tall?buildPortrait():LAY_LAND.slice();
+  order=pos.map((p,i)=>i).sort((a,b)=>pos[b][2]-pos[a][2]);
+}
+layout();
+
+let rotY=0,rotX=0,drag=false,lx=0,ly=0,vy=0,vx=0,mode='intro',travel=performance.now(),settle=0;
+let RCy=1,RCys=0,RCx=1,RCxs=0;
+function updateRot(){RCy=Math.cos(rotY);RCys=Math.sin(rotY);RCx=Math.cos(rotX);RCxs=Math.sin(rotX)}
+function project(p,scale=1){
+  const x=p.x*RCy-p.z*RCys;let z0=p.x*RCys+p.z*RCy;const y=p.y*RCx-z0*RCxs;z0=p.y*RCxs+z0*RCx;
+  const depth=3.8/(3.8+z0);
+  return{x:W*.5+x*PX*depth*scale,y:H*.5-y*PY*depth*scale,s:depth*scale};
+}
+let coreGrad=null,coreW=-1;
+function core(){if(!coreGrad||coreW!==W){coreW=W;coreGrad=ctx.createRadialGradient(0,0,0,0,0,W*.2);coreGrad.addColorStop(0,'rgba(255,255,255,.9)');coreGrad.addColorStop(.08,'rgba(255,210,245,.7)');coreGrad.addColorStop(.35,'rgba(255,100,205,.18)');coreGrad.addColorStop(1,'rgba(0,0,0,0)')}return coreGrad}
+
+function drawStars(t){const n=nOf(NS),cy=RCy,sy=RCys,cx=RCx,sx=RCxs;for(let i=0;i<n;i++){const a=stA[i]+rotY*.15,r=stR[i];let x=Math.cos(a)*r,y=Math.sin(a)*r*.55;let x0=x*cy-stZ[i]*sy,z0=x*sy+stZ[i]*cy,y0=y*cx-z0*sx;z0=y*sx+z0*cx;const d=3.8/(3.8+z0);dot(sprWhite,W*.5+x0*PX*d,H*.5-y0*PY*d,stS[i]*d*.65,.4+.6*Math.sin(t*.001+stP[i]))}}
+
+function drawTunnel(t,prog){
+  const n=nOf(NT);ctx.save();ctx.translate(W*.5,H*.5);ctx.lineCap='round';
+  for(let b=0;b<8;b++){
+    const zAvg=(b+.5)/8;
+    ctx.globalAlpha=.15+.75*(1-zAvg)*prog;ctx.lineWidth=.5+1.4*prog*(1-zAvg);
+    for(const pink of[0,1]){
+      if(pink){ctx.strokeStyle='#ffd5f3';ctx.beginPath()}else{ctx.strokeStyle='#fff';ctx.beginPath()}
+      for(let i=b;i<n;i+=8){
+        if(tnB[i]!==b||tnP[i]!==pink)continue;
+        const rr=tnR[i]*(.18+prog*1.5)/(tnZ[i]+.08),a=tnA[i];
+        const x=Math.cos(a)*rr*W*.28,y=Math.sin(a)*rr*H*.25,len=(5+prog*55)*(1-tnZ[i]*.7);
+        ctx.moveTo(x,y);ctx.lineTo(x-Math.cos(a)*len,y-Math.sin(a)*len);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawDisk(t,appear){
+  const n=nOf(ND);ctx.save();ctx.translate(W*.5,H*.5+H*.035);ctx.rotate(.03);
+  const sc=W*.32*(.65+.35*appear),t0=t*.00008;
+  for(let i=0;i<n;i++){
+    const rr=dkR[i]*sc,a=dkA[i]+t0*dkW[i];
+    dot(dkR[i]<.18?sprWhite:sprPink,Math.cos(a)*rr,Math.sin(a)*rr*(.08+.17*dkR[i])+dkZ[i]*W*.03,dkS[i]*(.4+appear),(.12+.88*(1-dkR[i]))*appear);
+  }
+  ctx.globalAlpha=1;ctx.fillStyle=core();ctx.beginPath();ctx.arc(0,0,W*.2,0,TAU);ctx.fill();ctx.restore();
+}
+
+function drawVortex(t,appear){
+  const n=nOf(NV);ctx.save();ctx.translate(W*.5,H*.5+H*.095);const sc=W*.11*(.35+.65*appear),t0=t*.0009;
+  for(let i=0;i<n;i++){const r=vxR[i],a=vxA[i]-t0*(1.2-r),rr=r*sc;dot(sprPink,Math.cos(a)*rr,Math.sin(a)*rr*.34,vxS[i]*(.3+.8*appear),(.18+.7*(1-r))*appear)}
+  ctx.restore();
+}
+
+function drawHeart(t,appear){
+  const n=nOf(NH),cy=RCy,sy=RCys,cx=RCx,sx=RCxs,cxp=W*.5,cyp=H*.5+PX*.18;
+  for(let i=0;i<n;i++){
+    let x=htX[i]*.36,z0=htZ[i];
+    let x0=x*cy-z0*sy;z0=x*sy+z0*cy;let y0=htY[i]*.36*cx-z0*sx;z0=htY[i]*.36*sx+z0*cx;
+    const d=3.8/(3.8+z0)*.95;
+    dot(htZ[i]>0?sprWhite:sprPink,cxp+x0*PX*d,cyp-y0*PY*d,htS[i]*d*(.65+appear),(.25+.75*appear));
+  }
+  dot(sprPink,cxp,cyp,W*.01,appear*.9);
+}
+
+function drawPlaques(t,appear){
+  for(let k=0;k<order.length;k++){
+    const i=order[k],p=pos[i],bob=Math.sin(t*.0013+i)*.025;
+    const q=project({x:p[0],y:p[1]+bob,z:p[2]},1);
+    const w=PW*q.s,h=PH*q.s;
+    ctx.save();ctx.translate(q.x,q.y);
+    ctx.globalAlpha=appear*(.55+.45*q.s);
+    ctx.shadowBlur=18;ctx.shadowColor='rgba(255,120,210,.28)';
+    ctx.fillStyle='rgba(8,7,17,.78)';ctx.strokeStyle='rgba(255,190,235,.55)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.roundRect(-w*.5,-h*.5,w,h,10*q.s);ctx.fill();ctx.stroke();ctx.shadowBlur=0;
+    const fs=Math.max(tall?11:9,FS*q.s);ctx.font='600 '+fs+'px Arial';ctx.textAlign='center';ctx.textBaseline='middle';
+    const words=plaqueWords[i],lines=[];let line='';const maxW=Math.max(35,w-18*q.s);
+    for(const word of words){const test=line?line+' '+word:word;if(ctx.measureText(test).width<=maxW)line=test;else{if(line)lines.push(line);line=word}}
+    if(line)lines.push(line);lines.length=Math.min(lines.length,2);
+    const lh=fs*1.15,sy0=-(lines.length-1)*lh*.5;
+    ctx.fillStyle='#fff';for(let n=0;n<lines.length;n++)ctx.fillText(lines[n],0,sy0+n*lh);
+    ctx.restore();
+  }
+}
+
+function scene(t){
+  ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;
+  if(mode==='travel'){
+    const p=clamp((t-travel)/3000,0,1);
+    drawTunnel(t,p);
+    if(p>.55)drawDisk(t,clamp((p-.55)/.45,0,1)*.35);
+    if(p>=1){mode='settle';settle=t}
+  }
+  if(mode==='settle'||mode==='space'){
+    const p=clamp((t-settle)/1800,0,1);
+    drawStars(t);drawDisk(t,p);drawVortex(t,p);drawHeart(t,p);
+    if(p>.45)drawPlaques(t,(p-.45)/.55);
+  }
+}
+
+let last=performance.now();
+function loop(now){
+  const dt=now-last;last=now;tune(dt);
+  if(needsLayout){needsLayout=false;layout()}
+  updateRot();scene(now);
+  if(!drag){rotY+=vy;rotX=clamp(rotX+vx,-.75,.75);vy*=.985;vx*=.985}
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function pointerDown(e){if(mode==='travel'||mode==='intro')return;drag=true;lx=e.clientX;ly=e.clientY;vy=vx=0;try{canvas.setPointerCapture(e.pointerId)}catch(_){}}
+function pointerMove(e){if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;rotY+=dx*.006;rotX=clamp(rotX+dy*.004,-.85,.85);vy=dx*.0007;vx=dy*.0005}
+function pointerUp(){drag=false}
+canvas.addEventListener('pointerdown',pointerDown);canvas.addEventListener('pointermove',pointerMove);
+addEventListener('pointerup',pointerUp);
+canvas.addEventListener('wheel',e=>{e.preventDefault()},{passive:false});
+
+function hit(e){
+  if(mode!=='space'&&mode!=='settle')return;
+  const x=e.clientX,y=e.clientY;
+  for(let i=0;i<pos.length;i++){const p=pos[i],q=project({x:p[0],y:p[1],z:p[2]},1);
+    if(Math.abs(x-q.x)<PW*q.s*.5+10&&Math.abs(y-q.y)<PH*q.s*.5+10){
+      document.getElementById('mt').textContent=plaques[i][0];
+      document.getElementById('mb').textContent=plaques[i][1];
+      document.getElementById('modal').classList.add('show');return}}
+}
+canvas.addEventListener('click',hit);
+document.getElementById('close').onclick=()=>document.getElementById('modal').classList.remove('show');
+setTimeout(()=>{document.getElementById('hint').style.opacity='.45'},9000);
+document.getElementById('go').onclick=()=>{intro.classList.add('hide');mode='travel';travel=performance.now();setTimeout(()=>{intro.style.display='none'},1100)};
+</script></body></html>
