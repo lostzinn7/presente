@@ -66,32 +66,23 @@ const nOf=n=>Math.max(1,(n*Q)|0);
 const plaques=[
 ['TE AMO','Você é meu lugar favorito em qualquer universo.'],['VOCÊ É ESPECIAL','Eu escolheria você de novo, em qualquer vida e em qualquer estrela.'],['NOSSO UNIVERSO','Meu universo fica muito mais bonito quando você está nele.'],['PARA SEMPRE','Quero dividir muitos amanhãs com você, até onde as estrelas alcançarem.'],['MEU LUGAR FAVORITO','Se eu pudesse escolher um lugar para ficar, seria sempre ao seu lado.'],['TE ADORO','Eu adoro cada detalhe seu e cada pedacinho da nossa história.'],['MINHA VIDA','Você trouxe uma luz para a minha vida que eu nem sabia que procurava.'],['SÓ VOCÊ','Meu coração reconhece você no meio de qualquer multidão.'],['AMOR ETERNO','Que o nosso amor continue brilhando mesmo depois de todas as estrelas.'],['VOCÊ ME FAZ FELIZ','Você consegue transformar os meus dias comuns nos meus dias favoritos.']];
 const plaqueWords=plaques.map(p=>p[0].split(' '));
-/* posições originais (paisagem) e versão espalhada para celular em pé */
-const LAY_LAND=[[-1.75,-.55,-.8],[1.72,-.48,-.45],[-1.95,.15,.15],[1.88,.25,.45],[-1.15,.9,-.55],[1.12,.88,-.3],[-2.05,-.1,.7],[2.05,.06,.85],[-.72,-1.02,.3],[.72,-.98,.15]];
-let pos=LAY_LAND.slice(),order=[],PX=W*.23,PY=W*.23,PW=Math.min(W*.30,190),PH=54,FS=10.5,tall=false;
-/* no retrato as posições saem calculadas da tela real: a profundidade (z) amplia as
-   placas próximas, então x e y são derivados para que nenhuma caixa saia da borda */
-function buildPortrait(){
-  const fracs=[-2,-1.2,-.5,.6,1.3,2],cols=[-1,1],zs=[-.30,-.16,-.34,-.10,-.24,-.20],arr=[];
-  for(let r=0;r<fracs.length&&arr.length<10;r++)for(let c=0;c<2&&arr.length<10;c++){
-    const z=zs[r],d=3.8/(3.8+z);
-    const mx=Math.max(0,W*.94/2-PW*d/2)/(PX*d),my=Math.max(0,H*.90/2-PH*d/2)/(PY*d);
-    arr.push([cols[c]*mx,fracs[r]/2*my+H*.03/(PY*d),z]);
-  }
-  return arr;
-}
+/* frases espalhadas pelos cantos da galáxia, em 3D: ela arrasta o dedo para
+   olhar ao redor e toca em cada plaquinha */
+const LAY=[[-1.75,-.55,-.8],[1.72,-.48,-.45],[-1.95,.15,.15],[1.88,.25,.45],[-1.15,.9,-.55],[1.12,.88,-.3],[-2.05,-.1,.7],[2.05,.06,.85],[-.72,-1.02,.3],[.72,-.98,.15]];
+let pos=LAY.slice(),order=[],PX=W*.23,PY=W*.23,PW=Math.min(W*.30,190),PH=54,FS=10.5,tall=false;
 function layout(){
   tall=H>=W*1.05;
-  PX=PY=tall?W*.30:W*.23;
-  PW=tall?Math.min(W*.29,190):Math.min(W*.30,190);
+  PX=PY=W*.23;
+  /* no celular a placa e a fonte são maiores para o dedo acertar e ler */
+  PW=Math.min(W*(tall?.36:.30),tall?210:190);
   PH=tall?56:54;
   FS=tall?13:10.5;
-  pos=tall?buildPortrait():LAY_LAND.slice();
+  pos=LAY.slice();
   order=pos.map((p,i)=>i).sort((a,b)=>pos[b][2]-pos[a][2]);
 }
 layout();
 
-let rotY=0,rotX=0,drag=false,lx=0,ly=0,vy=0,vx=0,mode='intro',travel=performance.now(),settle=0;
+let rotY=0,rotX=0,drag=false,lx=0,ly=0,vy=0,vx=0,moved=0,mode='intro',travel=performance.now(),settle=0;
 let RCy=1,RCys=0,RCx=1,RCxs=0;
 function updateRot(){RCy=Math.cos(rotY);RCys=Math.sin(rotY);RCx=Math.cos(rotX);RCxs=Math.sin(rotX)}
 function project(p,scale=1){
@@ -195,9 +186,10 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 
-function pointerDown(e){if(mode==='travel'||mode==='intro')return;drag=true;lx=e.clientX;ly=e.clientY;vy=vx=0;try{canvas.setPointerCapture(e.pointerId)}catch(_){}}
-function pointerMove(e){if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;rotY+=dx*.006;rotX=clamp(rotX+dy*.004,-.85,.85);vy=dx*.0007;vx=dy*.0005}
-function pointerUp(){drag=false}
+/* arrasta pra girar; o clique só vale se o dedo quase não saiu do lugar */
+function pointerDown(e){if(mode==='travel'||mode==='intro')return;drag=true;moved=0;lx=e.clientX;ly=e.clientY;vy=vx=0;try{canvas.setPointerCapture(e.pointerId)}catch(_){}}
+function pointerMove(e){if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;moved+=Math.abs(dx)+Math.abs(dy);rotY+=dx*.006;rotX=clamp(rotX+dy*.004,-.85,.85);vy=dx*.0007;vx=dy*.0005}
+function pointerUp(e){if(!drag)return;drag=false;if(moved<12)hit(e)}
 canvas.addEventListener('pointerdown',pointerDown);canvas.addEventListener('pointermove',pointerMove);
 addEventListener('pointerup',pointerUp);
 canvas.addEventListener('wheel',e=>{e.preventDefault()},{passive:false});
@@ -205,13 +197,17 @@ canvas.addEventListener('wheel',e=>{e.preventDefault()},{passive:false});
 function hit(e){
   if(mode!=='space'&&mode!=='settle')return;
   const x=e.clientX,y=e.clientY;
-  for(let i=0;i<pos.length;i++){const p=pos[i],q=project({x:p[0],y:p[1],z:p[2]},1);
+  /* só as placas que estão realmente na frente da câmera podem ser tocadas */
+  const lista=order.map(i=>({i:i,q:project({x:pos[i][0],y:pos[i][1],z:pos[i][2]},1)}))
+                    .filter(o=>o.q.s>.55)
+                    .sort((a,b)=>b.q.s-a.q.s);
+  for(const o of lista){
+    const q=o.q;
     if(Math.abs(x-q.x)<PW*q.s*.5+10&&Math.abs(y-q.y)<PH*q.s*.5+10){
-      document.getElementById('mt').textContent=plaques[i][0];
-      document.getElementById('mb').textContent=plaques[i][1];
+      document.getElementById('mt').textContent=plaques[o.i][0];
+      document.getElementById('mb').textContent=plaques[o.i][1];
       document.getElementById('modal').classList.add('show');return}}
 }
-canvas.addEventListener('click',hit);
 document.getElementById('close').onclick=()=>document.getElementById('modal').classList.remove('show');
 setTimeout(()=>{document.getElementById('hint').style.opacity='.45'},9000);
 document.getElementById('go').onclick=()=>{intro.classList.add('hide');mode='travel';travel=performance.now();setTimeout(()=>{intro.style.display='none'},1100)};
